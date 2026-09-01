@@ -147,3 +147,13 @@ so narrow peaks remain visible on the PocketTerm display.
 - Restored `_populate_table()` as a real screen method.
 - `R` performs a fresh SDR capture and then safely updates the results table.
 - `T` re-runs detection against the existing capture and persists the chosen threshold.
+
+
+## v0.3.5
+
+- Added hardened `readsb` SDR leasing.
+- If `readsb` is active when Pocket Spectrum starts, it is stopped automatically.
+- Pocket Spectrum waits until `readsb` has fully released the RTL-SDR before scanning.
+- On exit, `readsb` is restarted only if Pocket Spectrum stopped it.
+- The app waits for `readsb` to become active again after restoration.
+- If the lease cannot be acquired, scanning is disabled and the error is shown in the UI.

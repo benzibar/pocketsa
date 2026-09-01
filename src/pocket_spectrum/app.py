@@ -36,6 +36,7 @@ from pocket_spectrum.models import (
 )
 from pocket_spectrum.presets import PRESETS
 from pocket_spectrum.scanner import detect_signals
+from pocket_spectrum.sdr_lease import ReadsbLease, SdrLeaseError
 
 
 def field_text(rows: list[tuple[str, str]]) -> Text:
@@ -758,6 +759,8 @@ class PocketSpectrum(App):
         self.scanning = False
         self.threshold_index = 1
         self.gain_index = 0
+        self.lease = ReadsbLease()
+        self.lease_acquired = False
 
     @property
     def threshold_db(self) -> float:
@@ -805,8 +808,33 @@ class PocketSpectrum(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        try:
+            self.lease.acquire()
+            self.lease_acquired = True
+        except SdrLeaseError as exc:
+            self.lease_acquired = False
+            self.query_one(
+                "#scan-status",
+                Static,
+            ).update(
+                f"SDR unavailable: {exc}"
+            )
+
         self.action_refresh_device()
-        self._update_controls()
+
+        if self.lease_acquired:
+            self._update_controls()
+
+    def on_unmount(self) -> None:
+        if not self.lease_acquired:
+            return
+
+        try:
+            self.lease.release()
+        except SdrLeaseError:
+            pass
+        finally:
+            self.lease_acquired = False
 
     def _update_controls(self) -> None:
         gain_text = (
@@ -849,6 +877,10 @@ class PocketSpectrum(App):
                         "Device",
                         summary,
                     ),
+                    (
+                        "readsb",
+                        "Paused" if self.lease_acquired else "Not leased",
+                    ),
                 ]
             )
         )
@@ -877,7 +909,7 @@ class PocketSpectrum(App):
         self._update_controls()
 
     def action_custom_scan(self) -> None:
-        if self.scanning:
+        if self.scanning or not self.lease_acquired:
             return
 
         self.push_screen(
@@ -896,7 +928,7 @@ class PocketSpectrum(App):
         self,
         event: ListView.Selected,
     ) -> None:
-        if self.scanning:
+        if self.scanning or not self.lease_acquired:
             return
 
         index = event.list_view.index

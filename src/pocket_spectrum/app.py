@@ -476,6 +476,7 @@ class ScanResultsScreen(Screen):
         ("enter", "details", "Details"),
         ("g", "graph", "Graph"),
         ("t", "cycle_threshold", "Thresh"),
+        ("r", "refresh_scan", "Refresh"),
     ]
 
     CSS = """
@@ -506,6 +507,7 @@ class ScanResultsScreen(Screen):
         noise_floor: float,
         bins: list[SpectrumBin],
         threshold_db: float,
+        gain: str,
     ) -> None:
         super().__init__()
         self.preset = preset
@@ -513,6 +515,8 @@ class ScanResultsScreen(Screen):
         self.noise_floor = noise_floor
         self.bins = bins
         self.threshold_db = threshold_db
+        self.gain = gain
+        self.refreshing = False
 
     def compose(self) -> ComposeResult:
         with Vertical(id="results-root"):
@@ -597,6 +601,62 @@ class ScanResultsScreen(Screen):
         )
 
         self._refresh_results()
+
+    @work(thread=True)
+    def action_refresh_scan(self) -> None:
+        if self.refreshing:
+            return
+
+        self.refreshing = True
+
+        self.call_from_thread(
+            self.query_one(
+                "#results-summary",
+                Static,
+            ).update,
+            f"Refreshing {self.preset.name}..."
+        )
+
+        backend = RtlPowerBackend(
+            gain=self.gain,
+        )
+
+        try:
+            bins = backend.scan(
+                start_hz=self.preset.start_hz,
+                stop_hz=self.preset.stop_hz,
+                bin_hz=self.preset.step_hz,
+                integration_seconds=2,
+            )
+
+            noise_floor, hits = detect_signals(
+                bins,
+                threshold_db=self.threshold_db,
+                min_spacing_hz=max(
+                    self.preset.step_hz,
+                    25_000,
+                ),
+            )
+
+        except Exception as exc:
+            self.call_from_thread(
+                self.query_one(
+                    "#results-summary",
+                    Static,
+                ).update,
+                f"Refresh failed: {exc}"
+            )
+            self.refreshing = False
+            return
+
+        self.bins = bins
+        self.noise_floor = noise_floor
+        self.hits = hits
+        self.refreshing = False
+
+        self.call_from_thread(
+            self._populate_table
+        )
 
     def action_details(self) -> None:
         table = self.query_one(
@@ -900,6 +960,7 @@ class PocketSpectrum(App):
                 noise_floor=noise_floor,
                 bins=bins,
                 threshold_db=self.threshold_db,
+                gain=self.gain,
             ),
         )
 

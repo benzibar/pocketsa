@@ -127,3 +127,10 @@ so narrow peaks remain visible on the PocketTerm display.
 - Threshold control now works directly on the scan-results screen.
 - Press T to cycle the threshold and immediately re-detect signals from the existing scan data without re-running the SDR capture.
 - The chosen threshold is kept for the next scan.
+
+
+## v0.3.2
+
+- `R` on the scan-results screen now performs a fresh SDR capture of the same range.
+- Refresh preserves the current range, bin width, gain and detection threshold.
+- `T` continues to re-detect from the existing captured data without touching the SDR.

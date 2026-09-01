@@ -24,7 +24,7 @@ def field_text(rows: list[tuple[str, str]]) -> Text:
     text = Text()
 
     for index, (label, value) in enumerate(rows):
-        text.append(f"{label:<10}", style="ansi_bright_green bold")
+        text.append(f"{label:<10}", style="bright_green bold")
         text.append(value)
 
         if index != len(rows) - 1:

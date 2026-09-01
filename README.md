@@ -95,3 +95,8 @@ cwd = "/home/bdm198/pocketterm/apps/pocket-spectrum"
 - Tune/inspect mode.
 - Saved findings.
 - HackRF backend.
+
+
+## v0.1.1
+
+- Fixed Rich field-label colour styling on startup.

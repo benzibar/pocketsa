@@ -25,7 +25,10 @@ from pocket_spectrum.formatting import (
     format_frequency,
     format_frequency_compact,
 )
-from pocket_spectrum.graph import render_spectrum
+from pocket_spectrum.graph import (
+    render_spectrum,
+    spectrum_columns,
+)
 from pocket_spectrum.models import (
     ScanPreset,
     SignalHit,
@@ -230,11 +233,19 @@ class SpectrumScreen(Screen):
     BINDINGS = [
         ("q", "app.pop_screen", "Back"),
         ("escape", "app.pop_screen", "Back"),
+        ("left", "cursor_left", "Left"),
+        ("right", "cursor_right", "Right"),
+        ("p", "previous_peak", "Prev peak"),
+        ("n", "next_peak", "Next peak"),
     ]
+
+    GRAPH_WIDTH = 58
+    GRAPH_HEIGHT = 8
 
     CSS = """
     #graph-root {
         padding: 0 1;
+        height: 1fr;
     }
 
     #graph-title {
@@ -243,8 +254,17 @@ class SpectrumScreen(Screen):
         height: 1;
     }
 
+    #graph-readout {
+        height: 2;
+        margin-top: 1;
+    }
+
     #graph {
         height: auto;
+    }
+
+    #graph-help {
+        height: 2;
         margin-top: 1;
     }
     """
@@ -253,32 +273,201 @@ class SpectrumScreen(Screen):
         self,
         preset: ScanPreset,
         bins: list[SpectrumBin],
+        hits: list[SignalHit],
     ) -> None:
         super().__init__()
         self.preset = preset
         self.bins = bins
+        self.hits = hits
+
+        self.columns = spectrum_columns(
+            bins,
+            width=self.GRAPH_WIDTH,
+        )
+
+        self.cursor_column = (
+            self._initial_cursor_column()
+        )
+
+    def _initial_cursor_column(self) -> int:
+        if not self.columns:
+            return 0
+
+        # Start on the strongest visible point.
+        strongest = max(
+            range(len(self.columns)),
+            key=lambda index: (
+                self.columns[index].power_db
+            ),
+        )
+        return strongest
 
     def compose(self) -> ComposeResult:
         with Vertical(id="graph-root"):
             yield Static(
-                f"SPECTRUM: {self.preset.name.upper()}",
+                f"SPECTRUM: "
+                f"{self.preset.name.upper()}",
                 id="graph-title",
             )
+
             yield Static(
-                render_spectrum(
-                    self.bins,
-                    width=58,
-                    height=8,
-                ),
-                id="graph",
-            )
-            yield Static(
-                f"{format_frequency(self.preset.start_hz)}"
-                f"{' ' * 10}"
-                f"{format_frequency(self.preset.stop_hz)}\n\n"
-                "Q Back"
+                "",
+                id="graph-readout",
             )
 
+            yield Static(
+                "",
+                id="graph",
+            )
+
+            yield Static(
+                "←/→ Scan  P/N Peaks  Q Back",
+                id="graph-help",
+            )
+
+    def on_mount(self) -> None:
+        self._update_graph()
+
+    def _selected_bin(
+        self,
+    ) -> SpectrumBin | None:
+        if not self.columns:
+            return None
+
+        self.cursor_column = max(
+            0,
+            min(
+                self.cursor_column,
+                len(self.columns) - 1,
+            ),
+        )
+
+        return self.columns[
+            self.cursor_column
+        ]
+
+    def _update_graph(self) -> None:
+        selected = self._selected_bin()
+
+        self.query_one(
+            "#graph",
+            Static,
+        ).update(
+            render_spectrum(
+                self.bins,
+                width=self.GRAPH_WIDTH,
+                height=self.GRAPH_HEIGHT,
+                cursor_column=(
+                    self.cursor_column
+                    if self.columns
+                    else None
+                ),
+            )
+        )
+
+        if selected is None:
+            readout = "No spectrum data"
+        else:
+            readout = (
+                f"{format_frequency(selected.frequency_hz)}  "
+                f"{selected.power_db:.1f} dB\n"
+                f"Column {self.cursor_column + 1}/"
+                f"{len(self.columns)}"
+            )
+
+        self.query_one(
+            "#graph-readout",
+            Static,
+        ).update(
+            readout
+        )
+
+    def action_cursor_left(self) -> None:
+        if not self.columns:
+            return
+
+        self.cursor_column = max(
+            0,
+            self.cursor_column - 1,
+        )
+        self._update_graph()
+
+    def action_cursor_right(self) -> None:
+        if not self.columns:
+            return
+
+        self.cursor_column = min(
+            len(self.columns) - 1,
+            self.cursor_column + 1,
+        )
+        self._update_graph()
+
+    def _column_for_frequency(
+        self,
+        frequency_hz: float,
+    ) -> int:
+        if not self.columns:
+            return 0
+
+        return min(
+            range(len(self.columns)),
+            key=lambda index: abs(
+                self.columns[index].frequency_hz
+                - frequency_hz
+            ),
+        )
+
+    def _peak_columns(self) -> list[int]:
+        columns = sorted(
+            {
+                self._column_for_frequency(
+                    hit.frequency_hz
+                )
+                for hit in self.hits
+            }
+        )
+
+        return columns
+
+    def action_next_peak(self) -> None:
+        peak_columns = (
+            self._peak_columns()
+        )
+
+        if not peak_columns:
+            return
+
+        for column in peak_columns:
+            if column > self.cursor_column:
+                self.cursor_column = column
+                self._update_graph()
+                return
+
+        self.cursor_column = (
+            peak_columns[0]
+        )
+        self._update_graph()
+
+    def action_previous_peak(self) -> None:
+        peak_columns = (
+            self._peak_columns()
+        )
+
+        if not peak_columns:
+            return
+
+        for column in reversed(
+            peak_columns
+        ):
+            if column < self.cursor_column:
+                self.cursor_column = column
+                self._update_graph()
+                return
+
+        self.cursor_column = (
+            peak_columns[-1]
+        )
+        self._update_graph()
 
 class ScanResultsScreen(Screen):
     BINDINGS = [
@@ -389,6 +578,7 @@ class ScanResultsScreen(Screen):
             SpectrumScreen(
                 self.preset,
                 self.bins,
+                self.hits,
             )
         )
 

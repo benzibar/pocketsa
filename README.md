@@ -103,3 +103,20 @@ cwd = "/home/bdm198/pocketterm/apps/pocketsa"
 - Saved findings and frequency notes.
 - Waterfall/history view.
 - HackRF backend.
+
+
+## v0.3
+
+Interactive spectrum inspection:
+
+- The spectrum graph now has a movable cursor.
+- Left/Right scans across the displayed spectrum.
+- The exact representative frequency and power for the selected graph column
+  are shown above the graph.
+- P/N jumps directly between detected peaks.
+- The graph opens initially on the strongest visible point.
+- A vertical cursor line and marker show exactly which part of the graph is
+  being inspected.
+
+The graph keeps the strongest raw FFT bin represented by each screen column,
+so narrow peaks remain visible on the PocketTerm display.

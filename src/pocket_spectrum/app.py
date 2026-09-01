@@ -1,21 +1,36 @@
 from __future__ import annotations
 
-from concurrent.futures import Future
-from typing import Any
-
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import Vertical
-from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Label, ListItem, ListView, Static
+from textual.containers import Horizontal, Vertical
+from textual.screen import ModalScreen, Screen
+from textual.widgets import (
+    Button,
+    DataTable,
+    Footer,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    Select,
+    Static,
+)
 
-from pocket_spectrum.backends.rtl_power import RtlPowerBackend, RtlPowerError
+from pocket_spectrum.backends.rtl_power import (
+    RtlPowerBackend,
+    RtlPowerError,
+)
 from pocket_spectrum.formatting import (
     format_frequency,
     format_frequency_compact,
 )
-from pocket_spectrum.models import ScanPreset, SignalHit
+from pocket_spectrum.graph import render_spectrum
+from pocket_spectrum.models import (
+    ScanPreset,
+    SignalHit,
+    SpectrumBin,
+)
 from pocket_spectrum.presets import PRESETS
 from pocket_spectrum.scanner import detect_signals
 
@@ -24,13 +39,122 @@ def field_text(rows: list[tuple[str, str]]) -> Text:
     text = Text()
 
     for index, (label, value) in enumerate(rows):
-        text.append(f"{label:<10}", style="bright_green bold")
+        text.append(
+            f"{label:<10}",
+            style="bright_green bold",
+        )
         text.append(value)
 
         if index != len(rows) - 1:
             text.append("\n")
 
     return text
+
+
+class CustomScanScreen(ModalScreen[ScanPreset | None]):
+    CSS = """
+    CustomScanScreen {
+        align: center middle;
+    }
+
+    #custom-box {
+        width: 92%;
+        height: auto;
+        border: round cyan;
+        padding: 1 2;
+    }
+
+    #custom-title {
+        color: cyan;
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #custom-buttons {
+        height: auto;
+        margin-top: 1;
+    }
+    """
+
+    BINDINGS = [
+        ("q", "cancel", "Back"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="custom-box"):
+            yield Static(
+                "CUSTOM SCAN (MHz)",
+                id="custom-title",
+            )
+            yield Input(
+                placeholder="Start MHz e.g. 118.0",
+                id="start",
+            )
+            yield Input(
+                placeholder="Stop MHz e.g. 137.0",
+                id="stop",
+            )
+            yield Input(
+                value="25",
+                placeholder="Bin width kHz",
+                id="step",
+            )
+
+            with Horizontal(id="custom-buttons"):
+                yield Button(
+                    "Scan",
+                    id="scan",
+                    variant="primary",
+                )
+                yield Button(
+                    "Cancel",
+                    id="cancel",
+                )
+
+    def on_mount(self) -> None:
+        self.query_one("#start", Input).focus()
+
+    def on_button_pressed(
+        self,
+        event: Button.Pressed,
+    ) -> None:
+        if event.button.id == "cancel":
+            self.dismiss(None)
+            return
+
+        try:
+            start_mhz = float(
+                self.query_one("#start", Input).value
+            )
+            stop_mhz = float(
+                self.query_one("#stop", Input).value
+            )
+            step_khz = float(
+                self.query_one("#step", Input).value
+            )
+        except ValueError:
+            return
+
+        if (
+            start_mhz <= 0
+            or stop_mhz <= start_mhz
+            or step_khz <= 0
+        ):
+            return
+
+        self.dismiss(
+            ScanPreset(
+                id="custom",
+                name="Custom",
+                start_hz=int(start_mhz * 1_000_000),
+                stop_hz=int(stop_mhz * 1_000_000),
+                step_hz=int(step_khz * 1_000),
+                description="User-defined frequency range",
+            )
+        )
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
 
 
 class SignalDetailScreen(Screen):
@@ -56,6 +180,12 @@ class SignalDetailScreen(Screen):
         self.hit = hit
 
     def compose(self) -> ComposeResult:
+        bandwidth = (
+            f"{self.hit.bandwidth_hz / 1000:.1f} kHz"
+            if self.hit.bandwidth_hz > 0
+            else "---"
+        )
+
         with Vertical(id="detail"):
             yield Static(
                 "SIGNAL DETAIL",
@@ -64,16 +194,88 @@ class SignalDetailScreen(Screen):
             yield Static(
                 field_text(
                     [
-                        ("Frequency", format_frequency(self.hit.frequency_hz)),
-                        ("Power", f"{self.hit.power_db:.1f} dB"),
-                        ("Noise", f"{self.hit.noise_floor_db:.1f} dB"),
-                        ("Above NF", f"{self.hit.snr_db:.1f} dB"),
+                        (
+                            "Frequency",
+                            format_frequency(
+                                self.hit.frequency_hz
+                            ),
+                        ),
+                        (
+                            "Power",
+                            f"{self.hit.power_db:.1f} dB",
+                        ),
+                        (
+                            "Noise",
+                            f"{self.hit.noise_floor_db:.1f} dB",
+                        ),
+                        (
+                            "Above NF",
+                            f"{self.hit.snr_db:.1f} dB",
+                        ),
+                        (
+                            "Bandwidth",
+                            bandwidth,
+                        ),
                     ]
                 )
             )
             yield Static(
-                "\nThis is a detected RF energy peak. "
-                "Modulation/decoder identification will be added later.\n\n"
+                "\nDetected RF energy peak. "
+                "Signal identification/decoding will come later.\n\n"
+                "Q Back"
+            )
+
+
+class SpectrumScreen(Screen):
+    BINDINGS = [
+        ("q", "app.pop_screen", "Back"),
+        ("escape", "app.pop_screen", "Back"),
+    ]
+
+    CSS = """
+    #graph-root {
+        padding: 0 1;
+    }
+
+    #graph-title {
+        color: cyan;
+        text-style: bold;
+        height: 1;
+    }
+
+    #graph {
+        height: auto;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(
+        self,
+        preset: ScanPreset,
+        bins: list[SpectrumBin],
+    ) -> None:
+        super().__init__()
+        self.preset = preset
+        self.bins = bins
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="graph-root"):
+            yield Static(
+                f"SPECTRUM: {self.preset.name.upper()}",
+                id="graph-title",
+            )
+            yield Static(
+                render_spectrum(
+                    self.bins,
+                    width=58,
+                    height=8,
+                ),
+                id="graph",
+            )
+            yield Static(
+                f"{format_frequency(self.preset.start_hz)}"
+                f"{' ' * 10}"
+                f"{format_frequency(self.preset.stop_hz)}\n\n"
                 "Q Back"
             )
 
@@ -83,6 +285,7 @@ class ScanResultsScreen(Screen):
         ("q", "app.pop_screen", "Back"),
         ("escape", "app.pop_screen", "Back"),
         ("enter", "details", "Details"),
+        ("g", "graph", "Graph"),
     ]
 
     CSS = """
@@ -111,10 +314,13 @@ class ScanResultsScreen(Screen):
         preset: ScanPreset,
         hits: list[SignalHit],
         noise_floor: float,
+        bins: list[SpectrumBin],
     ) -> None:
         super().__init__()
         self.preset = preset
         self.hits = hits
+        self.noise_floor = noise_floor
+        self.bins = bins
 
     def compose(self) -> ComposeResult:
         with Vertical(id="results-root"):
@@ -123,9 +329,9 @@ class ScanResultsScreen(Screen):
                 id="results-title",
             )
             yield Static(
-                f"{format_frequency(self.preset.start_hz)} - "
-                f"{format_frequency(self.preset.stop_hz)}\n"
-                f"{len(self.hits)} signal(s) detected",
+                f"NF {self.noise_floor:.1f} dB | "
+                f"{len(self.hits)} signal(s) | "
+                f"G Graph",
                 id="results-summary",
             )
 
@@ -134,29 +340,42 @@ class ScanResultsScreen(Screen):
                 cursor_type="row",
             )
             table.add_columns(
-                "FREQ MHz",
-                "POWER",
+                "FREQ",
+                "PWR",
                 "+NF",
+                "BW kHz",
             )
             yield table
 
         yield Footer()
 
     def on_mount(self) -> None:
-        table = self.query_one("#results-table", DataTable)
+        table = self.query_one(
+            "#results-table",
+            DataTable,
+        )
 
         for index, hit in enumerate(self.hits):
             table.add_row(
-                format_frequency_compact(hit.frequency_hz),
+                format_frequency_compact(
+                    hit.frequency_hz
+                ),
                 f"{hit.power_db:.1f}",
                 f"{hit.snr_db:.1f}",
+                f"{hit.bandwidth_hz / 1000:.1f}",
                 key=str(index),
             )
 
     def action_details(self) -> None:
-        table = self.query_one("#results-table", DataTable)
+        table = self.query_one(
+            "#results-table",
+            DataTable,
+        )
 
-        if table.cursor_row < 0 or table.cursor_row >= len(self.hits):
+        if (
+            table.cursor_row < 0
+            or table.cursor_row >= len(self.hits)
+        ):
             return
 
         self.app.push_screen(
@@ -165,21 +384,13 @@ class ScanResultsScreen(Screen):
             )
         )
 
-    def on_data_table_row_selected(
-        self,
-        event: DataTable.RowSelected,
-    ) -> None:
-        try:
-            index = int(str(event.row_key.value))
-        except (TypeError, ValueError):
-            return
-
-        if 0 <= index < len(self.hits):
-            self.app.push_screen(
-                SignalDetailScreen(
-                    self.hits[index]
-                )
+    def action_graph(self) -> None:
+        self.app.push_screen(
+            SpectrumScreen(
+                self.preset,
+                self.bins,
             )
+        )
 
 
 class PocketSpectrum(App):
@@ -221,12 +432,32 @@ class PocketSpectrum(App):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("r", "refresh_device", "Device"),
+        ("c", "custom_scan", "Custom"),
+        ("t", "cycle_threshold", "Thresh"),
+        ("g", "cycle_gain", "Gain"),
     ]
+
+    THRESHOLDS = [6.0, 8.0, 10.0, 12.0, 15.0]
+    GAINS = ["auto", "10", "20", "30", "40"]
 
     def __init__(self) -> None:
         super().__init__()
         self.backend = RtlPowerBackend()
         self.scanning = False
+        self.threshold_index = 1
+        self.gain_index = 0
+
+    @property
+    def threshold_db(self) -> float:
+        return self.THRESHOLDS[
+            self.threshold_index
+        ]
+
+    @property
+    def gain(self) -> str:
+        return self.GAINS[
+            self.gain_index
+        ]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="home-root"):
@@ -255,7 +486,7 @@ class PocketSpectrum(App):
             )
 
             yield Static(
-                "Enter Scan   R Device   Q Quit",
+                "",
                 id="scan-status",
             )
 
@@ -263,13 +494,32 @@ class PocketSpectrum(App):
 
     def on_mount(self) -> None:
         self.action_refresh_device()
+        self._update_controls()
+
+    def _update_controls(self) -> None:
+        gain_text = (
+            "AUTO"
+            if self.gain == "auto"
+            else f"{self.gain} dB"
+        )
+
+        self.query_one(
+            "#scan-status",
+            Static,
+        ).update(
+            f"Thr +{self.threshold_db:.0f}dB | "
+            f"Gain {gain_text} | "
+            "C Custom"
+        )
 
     def action_refresh_device(self) -> None:
         if not self.backend.available():
             summary = "rtl_power not installed"
         else:
             try:
-                summary = self.backend.device_summary()
+                summary = (
+                    self.backend.device_summary()
+                )
             except Exception:
                 summary = "Unable to query RTL-SDR"
 
@@ -279,11 +529,56 @@ class PocketSpectrum(App):
         ).update(
             field_text(
                 [
-                    ("Backend", "RTL-SDR / rtl_power"),
-                    ("Device", summary),
+                    (
+                        "Backend",
+                        "RTL-SDR / rtl_power",
+                    ),
+                    (
+                        "Device",
+                        summary,
+                    ),
                 ]
             )
         )
+
+    def action_cycle_threshold(self) -> None:
+        if self.scanning:
+            return
+
+        self.threshold_index = (
+            self.threshold_index + 1
+        ) % len(self.THRESHOLDS)
+        self._update_controls()
+
+    def action_cycle_gain(self) -> None:
+        if self.scanning:
+            return
+
+        self.gain_index = (
+            self.gain_index + 1
+        ) % len(self.GAINS)
+
+        self.backend.set_gain(
+            self.gain
+        )
+
+        self._update_controls()
+
+    def action_custom_scan(self) -> None:
+        if self.scanning:
+            return
+
+        self.push_screen(
+            CustomScanScreen(),
+            self._custom_scan_ready,
+        )
+
+    def _custom_scan_ready(
+        self,
+        preset: ScanPreset | None,
+    ) -> None:
+        if preset is not None:
+            self.start_scan(preset)
 
     def on_list_view_selected(
         self,
@@ -294,17 +589,30 @@ class PocketSpectrum(App):
 
         index = event.list_view.index
 
-        if index is None or not (0 <= index < len(PRESETS)):
+        if (
+            index is None
+            or not (
+                0 <= index < len(PRESETS)
+            )
+        ):
             return
 
-        self.start_scan(PRESETS[index])
+        self.start_scan(
+            PRESETS[index]
+        )
 
     @work(thread=True)
-    def start_scan(self, preset: ScanPreset) -> None:
+    def start_scan(
+        self,
+        preset: ScanPreset,
+    ) -> None:
         self.scanning = True
 
         self.call_from_thread(
-            self.query_one("#scan-status", Static).update,
+            self.query_one(
+                "#scan-status",
+                Static,
+            ).update,
             f"Scanning {preset.name}...",
         )
 
@@ -316,15 +624,23 @@ class PocketSpectrum(App):
                 integration_seconds=2,
             )
 
-            noise_floor, hits = detect_signals(
-                bins,
-                threshold_db=8.0,
-                min_spacing_hz=max(preset.step_hz, 25_000),
+            noise_floor, hits = (
+                detect_signals(
+                    bins,
+                    threshold_db=self.threshold_db,
+                    min_spacing_hz=max(
+                        preset.step_hz,
+                        25_000,
+                    ),
+                )
             )
 
         except RtlPowerError as exc:
             self.call_from_thread(
-                self.query_one("#scan-status", Static).update,
+                self.query_one(
+                    "#scan-status",
+                    Static,
+                ).update,
                 f"Scan failed: {exc}",
             )
             self.scanning = False
@@ -332,7 +648,10 @@ class PocketSpectrum(App):
 
         except Exception as exc:
             self.call_from_thread(
-                self.query_one("#scan-status", Static).update,
+                self.query_one(
+                    "#scan-status",
+                    Static,
+                ).update,
                 f"Error: {exc}",
             )
             self.scanning = False
@@ -341,17 +660,17 @@ class PocketSpectrum(App):
         self.scanning = False
 
         self.call_from_thread(
-            self.query_one("#scan-status", Static).update,
-            f"{len(hits)} signal(s) found",
-        )
-
-        self.call_from_thread(
             self.push_screen,
             ScanResultsScreen(
                 preset=preset,
                 hits=hits,
                 noise_floor=noise_floor,
+                bins=bins,
             ),
+        )
+
+        self.call_from_thread(
+            self._update_controls
         )
 
 

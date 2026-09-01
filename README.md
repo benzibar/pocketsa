@@ -2,21 +2,39 @@
 
 Receive-only spectrum scanner for PocketTerm.
 
-## v0.1
+## v0.2
 
-Pocket Spectrum uses the Linux `rtl_power` utility as its first SDR backend.
-The UI is intentionally independent of the backend so HackRF support can be
-added later without rewriting the application.
+Pocket Spectrum uses `rtl_power` as its first SDR backend and keeps the UI
+separate from the radio backend so HackRF support can be added later.
 
 ### Current features
 
-- Detects the RTL-SDR through `rtl_test`.
-- Scans a selected preset band with `rtl_power`.
-- Estimates the local noise floor using the median power level.
-- Detects peaks above the noise floor.
-- Displays frequency, power and level above the estimated noise floor.
+- RTL-SDR device detection.
+- Preset band scans.
+- Custom start/stop frequency and bin width.
+- Adjustable detection threshold.
+- Adjustable RTL gain.
+- Median-based noise-floor estimation.
+- Groups adjacent hot bins into a single detected signal.
+- Shows frequency, power, level above noise floor and estimated bandwidth.
+- Compact spectrum graph for the scanned range.
 - Signal detail screen.
-- `Q` is the normal Back/Exit key.
+- `Q` as Back/Exit.
+
+### Controls
+
+Home:
+- Enter: scan selected preset
+- C: custom scan
+- T: cycle detection threshold
+- G: cycle RTL gain
+- R: refresh device
+- Q: quit
+
+Results:
+- Enter: signal detail
+- G: spectrum graph
+- Q: back
 
 ### Included presets
 
@@ -27,49 +45,41 @@ added later without rewriting the application.
 - PMR446
 - 1090 MHz ADS-B neighbourhood
 
-This version is receive-only. It does not transmit or interact with signals.
+This application is receive-only.
 
 ## PocketTerm prerequisites
-
-Check that the RTL-SDR utilities are installed:
 
 ```bash
 which rtl_power
 which rtl_test
 ```
 
-If they are missing:
+If missing:
 
 ```bash
 sudo apt update
 sudo apt install rtl-sdr
 ```
 
-Before running Pocket Spectrum, stop any service currently holding the RTL-SDR,
-such as `readsb`:
+If `readsb` is using the RTL-SDR:
 
 ```bash
 sudo systemctl stop readsb
 ```
 
-After testing Pocket Spectrum, restart ADS-B reception with:
+Restart it afterwards:
 
 ```bash
 sudo systemctl start readsb
 ```
 
-## Install
+## Install / update
 
 ```bash
-cd ~/pocketterm/apps
-git clone https://github.com/benzibar/pocket-spectrum.git
-cd pocket-spectrum
-
-python3 -m venv .venv
+cd ~/pocketterm/apps/pocketsa
+git pull
 source .venv/bin/activate
-python -m pip install --upgrade pip
 python -m pip install -e .
-
 pocket-spectrum
 ```
 
@@ -81,22 +91,15 @@ id = "spectrum"
 name = "Spectrum Scanner"
 description = "Find and inspect interesting RF activity"
 status = "READY"
-command = "/home/bdm198/pocketterm/apps/pocket-spectrum/.venv/bin/pocket-spectrum"
+command = "/home/bdm198/pocketterm/apps/pocketsa/.venv/bin/pocket-spectrum"
 args = []
-cwd = "/home/bdm198/pocketterm/apps/pocket-spectrum"
+cwd = "/home/bdm198/pocketterm/apps/pocketsa"
 ```
 
 ## Roadmap
 
-- Custom frequency-range entry.
-- Threshold/gain controls.
-- Spectrum graph.
+- Better spectrum scaling and frequency markers.
+- Live/tune inspect mode.
+- Saved findings and frequency notes.
 - Waterfall/history view.
-- Tune/inspect mode.
-- Saved findings.
 - HackRF backend.
-
-
-## v0.1.1
-
-- Fixed Rich field-label colour styling on startup.

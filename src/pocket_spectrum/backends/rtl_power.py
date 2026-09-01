@@ -24,6 +24,9 @@ class RtlPowerBackend:
         self.device_index = device_index
         self.gain = gain
 
+    def set_gain(self, gain: str) -> None:
+        self.gain = gain
+
     @staticmethod
     def available() -> bool:
         return shutil.which("rtl_power") is not None

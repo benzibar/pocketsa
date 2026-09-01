@@ -22,6 +22,7 @@ class SignalHit:
     frequency_hz: float
     power_db: float
     noise_floor_db: float
+    bandwidth_hz: float = 0.0
 
     @property
     def snr_db(self) -> float:

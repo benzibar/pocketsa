@@ -15,35 +15,44 @@ def detect_signals(
 
     powers = [item.power_db for item in bins]
     noise_floor = float(median(powers))
+    cutoff = noise_floor + threshold_db
 
-    candidates = [
+    hot = [
         item
-        for item in bins
-        if item.power_db >= noise_floor + threshold_db
+        for item in sorted(bins, key=lambda item: item.frequency_hz)
+        if item.power_db >= cutoff
     ]
 
-    candidates.sort(
-        key=lambda item: item.power_db,
-        reverse=True,
-    )
+    if not hot:
+        return noise_floor, []
 
-    accepted: list[SignalHit] = []
+    groups: list[list[SpectrumBin]] = []
+    current: list[SpectrumBin] = [hot[0]]
 
-    for candidate in candidates:
-        if any(
-            abs(candidate.frequency_hz - existing.frequency_hz)
-            < min_spacing_hz
-            for existing in accepted
-        ):
-            continue
+    for item in hot[1:]:
+        if item.frequency_hz - current[-1].frequency_hz <= min_spacing_hz:
+            current.append(item)
+        else:
+            groups.append(current)
+            current = [item]
 
-        accepted.append(
+    groups.append(current)
+
+    hits: list[SignalHit] = []
+
+    for group in groups:
+        peak = max(group, key=lambda item: item.power_db)
+        start = group[0].frequency_hz
+        stop = group[-1].frequency_hz
+        bandwidth = max(0.0, stop - start + min_spacing_hz)
+
+        hits.append(
             SignalHit(
-                frequency_hz=candidate.frequency_hz,
-                power_db=candidate.power_db,
+                frequency_hz=peak.frequency_hz,
+                power_db=peak.power_db,
                 noise_floor_db=noise_floor,
+                bandwidth_hz=bandwidth,
             )
         )
 
-    accepted.sort(key=lambda item: item.frequency_hz)
-    return noise_floor, accepted
+    return noise_floor, hits

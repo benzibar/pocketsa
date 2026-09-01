@@ -139,3 +139,11 @@ so narrow peaks remain visible on the PocketTerm display.
 ## v0.3.3
 
 - Fixed refresh worker UI updates by using `self.app.call_from_thread()`.
+
+
+## v0.3.4
+
+- Rebuilt the results-screen refresh implementation.
+- Restored `_populate_table()` as a real screen method.
+- `R` performs a fresh SDR capture and then safely updates the results table.
+- `T` re-runs detection against the existing capture and persists the chosen threshold.

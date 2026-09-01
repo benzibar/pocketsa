@@ -524,10 +524,9 @@ class ScanResultsScreen(Screen):
                 f"SCAN: {self.preset.name.upper()}",
                 id="results-title",
             )
+
             yield Static(
-                f"NF {self.noise_floor:.1f} dB | "
-                f"Thr +{self.threshold_db:.0f} | "
-                f"{len(self.hits)} sig | G Graph",
+                "",
                 id="results-summary",
             )
 
@@ -546,13 +545,31 @@ class ScanResultsScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._refresh_results()
+        self._populate_table()
 
-    def _refresh_results(self) -> None:
+    def _update_summary(self, message: str | None = None) -> None:
+        summary = self.query_one(
+            "#results-summary",
+            Static,
+        )
+
+        if message is not None:
+            summary.update(message)
+            return
+
+        summary.update(
+            f"NF {self.noise_floor:.1f} dB | "
+            f"Thr +{self.threshold_db:.0f} | "
+            f"{len(self.hits)} sig | "
+            f"G Graph  R Refresh"
+        )
+
+    def _populate_table(self) -> None:
         table = self.query_one(
             "#results-table",
             DataTable,
         )
+
         table.clear()
 
         for index, hit in enumerate(self.hits):
@@ -566,30 +583,26 @@ class ScanResultsScreen(Screen):
                 key=str(index),
             )
 
-        self.query_one(
-            "#results-summary",
-            Static,
-        ).update(
-            f"NF {self.noise_floor:.1f} dB | "
-            f"Thr +{self.threshold_db:.0f} | "
-            f"{len(self.hits)} sig | G Graph"
-        )
+        self._update_summary()
 
     def action_cycle_threshold(self) -> None:
-        thresholds = self.app.THRESHOLDS
+        thresholds = getattr(
+            self.app,
+            "THRESHOLDS",
+            [6.0, 8.0, 10.0, 12.0, 15.0],
+        )
+
         try:
-            index = thresholds.index(self.threshold_db)
+            current_index = thresholds.index(
+                self.threshold_db
+            )
         except ValueError:
-            index = 0
+            current_index = 0
 
         self.threshold_db = thresholds[
-            (index + 1) % len(thresholds)
+            (current_index + 1)
+            % len(thresholds)
         ]
-
-        # Keep the app-level threshold in sync for the next scan too.
-        self.app.threshold_index = thresholds.index(
-            self.threshold_db
-        )
 
         self.noise_floor, self.hits = detect_signals(
             self.bins,
@@ -600,7 +613,20 @@ class ScanResultsScreen(Screen):
             ),
         )
 
-        self._refresh_results()
+        if hasattr(
+            self.app,
+            "threshold_index",
+        ):
+            try:
+                self.app.threshold_index = (
+                    thresholds.index(
+                        self.threshold_db
+                    )
+                )
+            except ValueError:
+                pass
+
+        self._populate_table()
 
     @work(thread=True)
     def action_refresh_scan(self) -> None:
@@ -610,10 +636,7 @@ class ScanResultsScreen(Screen):
         self.refreshing = True
 
         self.app.call_from_thread(
-            self.query_one(
-                "#results-summary",
-                Static,
-            ).update,
+            self._update_summary,
             f"Refreshing {self.preset.name}..."
         )
 
@@ -639,14 +662,11 @@ class ScanResultsScreen(Screen):
             )
 
         except Exception as exc:
-            self.app.call_from_thread(
-                self.query_one(
-                    "#results-summary",
-                    Static,
-                ).update,
-                f"Refresh failed: {exc}"
-            )
             self.refreshing = False
+            self.app.call_from_thread(
+                self._update_summary,
+                f"Refresh failed: {exc}",
+            )
             return
 
         self.bins = bins
@@ -684,7 +704,6 @@ class ScanResultsScreen(Screen):
                 self.hits,
             )
         )
-
 
 class PocketSpectrum(App):
     TITLE = "Pocket Spectrum"

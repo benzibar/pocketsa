@@ -120,3 +120,10 @@ Interactive spectrum inspection:
 
 The graph keeps the strongest raw FFT bin represented by each screen column,
 so narrow peaks remain visible on the PocketTerm display.
+
+
+## v0.3.1
+
+- Threshold control now works directly on the scan-results screen.
+- Press T to cycle the threshold and immediately re-detect signals from the existing scan data without re-running the SDR capture.
+- The chosen threshold is kept for the next scan.

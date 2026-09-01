@@ -475,6 +475,7 @@ class ScanResultsScreen(Screen):
         ("escape", "app.pop_screen", "Back"),
         ("enter", "details", "Details"),
         ("g", "graph", "Graph"),
+        ("t", "cycle_threshold", "Thresh"),
     ]
 
     CSS = """
@@ -504,12 +505,14 @@ class ScanResultsScreen(Screen):
         hits: list[SignalHit],
         noise_floor: float,
         bins: list[SpectrumBin],
+        threshold_db: float,
     ) -> None:
         super().__init__()
         self.preset = preset
         self.hits = hits
         self.noise_floor = noise_floor
         self.bins = bins
+        self.threshold_db = threshold_db
 
     def compose(self) -> ComposeResult:
         with Vertical(id="results-root"):
@@ -519,8 +522,8 @@ class ScanResultsScreen(Screen):
             )
             yield Static(
                 f"NF {self.noise_floor:.1f} dB | "
-                f"{len(self.hits)} signal(s) | "
-                f"G Graph",
+                f"Thr +{self.threshold_db:.0f} | "
+                f"{len(self.hits)} sig | G Graph",
                 id="results-summary",
             )
 
@@ -539,10 +542,14 @@ class ScanResultsScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._refresh_results()
+
+    def _refresh_results(self) -> None:
         table = self.query_one(
             "#results-table",
             DataTable,
         )
+        table.clear()
 
         for index, hit in enumerate(self.hits):
             table.add_row(
@@ -554,6 +561,42 @@ class ScanResultsScreen(Screen):
                 f"{hit.bandwidth_hz / 1000:.1f}",
                 key=str(index),
             )
+
+        self.query_one(
+            "#results-summary",
+            Static,
+        ).update(
+            f"NF {self.noise_floor:.1f} dB | "
+            f"Thr +{self.threshold_db:.0f} | "
+            f"{len(self.hits)} sig | G Graph"
+        )
+
+    def action_cycle_threshold(self) -> None:
+        thresholds = self.app.THRESHOLDS
+        try:
+            index = thresholds.index(self.threshold_db)
+        except ValueError:
+            index = 0
+
+        self.threshold_db = thresholds[
+            (index + 1) % len(thresholds)
+        ]
+
+        # Keep the app-level threshold in sync for the next scan too.
+        self.app.threshold_index = thresholds.index(
+            self.threshold_db
+        )
+
+        self.noise_floor, self.hits = detect_signals(
+            self.bins,
+            threshold_db=self.threshold_db,
+            min_spacing_hz=max(
+                self.preset.step_hz,
+                25_000,
+            ),
+        )
+
+        self._refresh_results()
 
     def action_details(self) -> None:
         table = self.query_one(
@@ -856,6 +899,7 @@ class PocketSpectrum(App):
                 hits=hits,
                 noise_floor=noise_floor,
                 bins=bins,
+                threshold_db=self.threshold_db,
             ),
         )
 

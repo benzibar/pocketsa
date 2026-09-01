@@ -609,7 +609,7 @@ class ScanResultsScreen(Screen):
 
         self.refreshing = True
 
-        self.call_from_thread(
+        self.app.call_from_thread(
             self.query_one(
                 "#results-summary",
                 Static,
@@ -639,7 +639,7 @@ class ScanResultsScreen(Screen):
             )
 
         except Exception as exc:
-            self.call_from_thread(
+            self.app.call_from_thread(
                 self.query_one(
                     "#results-summary",
                     Static,
@@ -654,7 +654,7 @@ class ScanResultsScreen(Screen):
         self.hits = hits
         self.refreshing = False
 
-        self.call_from_thread(
+        self.app.call_from_thread(
             self._populate_table
         )
 
@@ -901,7 +901,7 @@ class PocketSpectrum(App):
     ) -> None:
         self.scanning = True
 
-        self.call_from_thread(
+        self.app.call_from_thread(
             self.query_one(
                 "#scan-status",
                 Static,
@@ -929,7 +929,7 @@ class PocketSpectrum(App):
             )
 
         except RtlPowerError as exc:
-            self.call_from_thread(
+            self.app.call_from_thread(
                 self.query_one(
                     "#scan-status",
                     Static,
@@ -940,7 +940,7 @@ class PocketSpectrum(App):
             return
 
         except Exception as exc:
-            self.call_from_thread(
+            self.app.call_from_thread(
                 self.query_one(
                     "#scan-status",
                     Static,
@@ -952,7 +952,7 @@ class PocketSpectrum(App):
 
         self.scanning = False
 
-        self.call_from_thread(
+        self.app.call_from_thread(
             self.push_screen,
             ScanResultsScreen(
                 preset=preset,
@@ -964,7 +964,7 @@ class PocketSpectrum(App):
             ),
         )
 
-        self.call_from_thread(
+        self.app.call_from_thread(
             self._update_controls
         )
 

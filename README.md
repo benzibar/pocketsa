@@ -134,3 +134,8 @@ so narrow peaks remain visible on the PocketTerm display.
 - `R` on the scan-results screen now performs a fresh SDR capture of the same range.
 - Refresh preserves the current range, bin width, gain and detection threshold.
 - `T` continues to re-detect from the existing captured data without touching the SDR.
+
+
+## v0.3.3
+
+- Fixed refresh worker UI updates by using `self.app.call_from_thread()`.

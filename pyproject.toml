@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pocket-spectrum"
-version = "0.3.2"
+version = "0.3.3"
 description = "PocketTerm RTL-SDR spectrum scanner"
 requires-python = ">=3.11"
 dependencies = [

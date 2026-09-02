@@ -39,6 +39,7 @@ Results:
 
 ### Included presets
 
+- UK FM broadcast radio (87.5–108 MHz)
 - Civil Airband
 - UK 2 metre amateur
 - Marine VHF
@@ -178,3 +179,10 @@ Pocket Receiver is expected at:
 ```
 
 Set `POCKET_RECEIVER_COMMAND` to override that executable path.
+
+## v0.4.1
+
+- Added `FM Radio` as a home-screen scan preset covering the UK VHF FM
+  broadcast allocation from 87.5 to 108 MHz.
+- Uses 100 kHz scan bins, giving enough resolution to locate broadcast stations
+  while keeping a full-band PocketTerm scan practical.

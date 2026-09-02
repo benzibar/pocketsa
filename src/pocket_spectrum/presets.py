@@ -3,6 +3,14 @@ from pocket_spectrum.models import ScanPreset
 
 PRESETS: list[ScanPreset] = [
     ScanPreset(
+        id="fm-radio",
+        name="FM Radio",
+        start_hz=87_500_000,
+        stop_hz=108_000_000,
+        step_hz=100_000,
+        description="UK VHF FM broadcast band",
+    ),
+    ScanPreset(
         id="airband",
         name="Airband",
         start_hz=118_000_000,

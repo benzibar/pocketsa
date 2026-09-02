@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
@@ -35,6 +37,7 @@ from pocket_spectrum.models import (
     SpectrumBin,
 )
 from pocket_spectrum.presets import PRESETS
+from pocket_spectrum.receiver_integration import receiver_command
 from pocket_spectrum.scanner import detect_signals
 from pocket_spectrum.sdr_lease import ReadsbLease, SdrLeaseError
 
@@ -165,6 +168,7 @@ class SignalDetailScreen(Screen):
     BINDINGS = [
         ("q", "app.pop_screen", "Back"),
         ("escape", "app.pop_screen", "Back"),
+        ("l", "listen", "Listen"),
     ]
 
     CSS = """
@@ -226,8 +230,11 @@ class SignalDetailScreen(Screen):
             yield Static(
                 "\nDetected RF energy peak. "
                 "Signal identification/decoding will come later.\n\n"
-                "Q Back"
+                "L Listen   Q Back"
             )
+
+    def action_listen(self) -> None:
+        self.app.open_receiver(self.hit.frequency_hz)
 
 
 class SpectrumScreen(Screen):
@@ -238,6 +245,7 @@ class SpectrumScreen(Screen):
         ("right", "cursor_right", "Right"),
         ("p", "previous_peak", "Prev peak"),
         ("n", "next_peak", "Next peak"),
+        ("l", "listen", "Listen"),
     ]
 
     GRAPH_WIDTH = 58
@@ -322,7 +330,7 @@ class SpectrumScreen(Screen):
             )
 
             yield Static(
-                "←/→ Scan  P/N Peaks  Q Back",
+                "←/→ Scan  P/N Peaks  L Listen  Q Back",
                 id="graph-help",
             )
 
@@ -470,6 +478,11 @@ class SpectrumScreen(Screen):
         )
         self._update_graph()
 
+    def action_listen(self) -> None:
+        selected = self._selected_bin()
+        if selected is not None:
+            self.app.open_receiver(selected.frequency_hz)
+
 class ScanResultsScreen(Screen):
     BINDINGS = [
         ("q", "app.pop_screen", "Back"),
@@ -478,6 +491,7 @@ class ScanResultsScreen(Screen):
         ("g", "graph", "Graph"),
         ("t", "cycle_threshold", "Thresh"),
         ("r", "refresh_scan", "Refresh"),
+        ("l", "listen", "Listen"),
     ]
 
     CSS = """
@@ -562,7 +576,7 @@ class ScanResultsScreen(Screen):
             f"NF {self.noise_floor:.1f} dB | "
             f"Thr +{self.threshold_db:.0f} | "
             f"{len(self.hits)} sig | "
-            f"G Graph  R Refresh"
+            f"G Graph  L Listen  R Refresh"
         )
 
     def _populate_table(self) -> None:
@@ -635,6 +649,7 @@ class ScanResultsScreen(Screen):
             return
 
         self.refreshing = True
+        self.app.scanning = True
 
         self.app.call_from_thread(
             self._update_summary,
@@ -664,6 +679,7 @@ class ScanResultsScreen(Screen):
 
         except Exception as exc:
             self.refreshing = False
+            self.app.scanning = False
             self.app.call_from_thread(
                 self._update_summary,
                 f"Refresh failed: {exc}",
@@ -674,6 +690,7 @@ class ScanResultsScreen(Screen):
         self.noise_floor = noise_floor
         self.hits = hits
         self.refreshing = False
+        self.app.scanning = False
 
         self.app.call_from_thread(
             self._populate_table
@@ -696,6 +713,19 @@ class ScanResultsScreen(Screen):
                 self.hits[table.cursor_row]
             )
         )
+
+    def action_listen(self) -> None:
+        if self.refreshing:
+            return
+
+        table = self.query_one(
+            "#results-table",
+            DataTable,
+        )
+        if 0 <= table.cursor_row < len(self.hits):
+            self.app.open_receiver(
+                self.hits[table.cursor_row].frequency_hz
+            )
 
     def action_graph(self) -> None:
         self.app.push_screen(
@@ -916,6 +946,41 @@ class PocketSpectrum(App):
             CustomScanScreen(),
             self._custom_scan_ready,
         )
+
+    def open_receiver(self, frequency_hz: float) -> None:
+        """Give the terminal to Receiver while retaining the readsb lease."""
+        if self.scanning or not self.lease_acquired:
+            self.notify(
+                "Receiver is unavailable while the SDR is busy.",
+                severity="warning",
+            )
+            return
+
+        command = receiver_command(frequency_hz)
+        try:
+            with self.suspend():
+                result = subprocess.run(
+                    command,
+                    check=False,
+                )
+        except FileNotFoundError:
+            self.notify(
+                "Pocket Receiver is not installed at the expected path.",
+                severity="error",
+            )
+            return
+        except OSError as exc:
+            self.notify(
+                f"Could not open Pocket Receiver: {exc}",
+                severity="error",
+            )
+            return
+
+        if result.returncode != 0:
+            self.notify(
+                f"Pocket Receiver exited with status {result.returncode}.",
+                severity="error",
+            )
 
     def _custom_scan_ready(
         self,

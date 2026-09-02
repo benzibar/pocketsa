@@ -34,6 +34,7 @@ Home:
 Results:
 - Enter: signal detail
 - G: spectrum graph
+- L: listen to the highlighted signal in Pocket Receiver
 - Q: back
 
 ### Included presets
@@ -157,3 +158,23 @@ so narrow peaks remain visible on the PocketTerm display.
 - On exit, `readsb` is restarted only if Pocket Spectrum stopped it.
 - The app waits for `readsb` to become active again after restoration.
 - If the lease cannot be acquired, scanning is disabled and the error is shown in the UI.
+
+## v0.4.0
+
+- Press `L` on a highlighted result, the signal-detail view, or the graph cursor
+  to open that exact frequency in Pocket Receiver.
+- FM broadcast frequencies open as WFM/200 kHz, civil airband as AM/12 kHz,
+  and other frequencies as NFM/12.5 kHz. These are starting defaults and remain
+  editable in Receiver.
+- Spectrum retains its `readsb` reservation during the handoff. Its terminal UI
+  is suspended while Receiver runs, then restored with the scan results intact.
+- Receiver starts playing immediately and returns to the same Spectrum screen
+  when the user quits it.
+
+Pocket Receiver is expected at:
+
+```text
+/home/bdm198/pocketterm/apps/pocket-receiver/.venv/bin/pocket-receiver
+```
+
+Set `POCKET_RECEIVER_COMMAND` to override that executable path.
